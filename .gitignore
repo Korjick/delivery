@@ -1,0 +1,66 @@
+############################
+# Go binaries & artifacts #
+############################
+
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go test binaries
+*.test
+
+# Go coverage
+*.out
+
+# Go workspace
+go.work
+
+############################
+# Build outputs            #
+############################
+
+# Common build dirs
+bin/
+build/
+dist/
+
+# Docker temp env
+build/docker/.env
+
+############################
+# Temporary files          #
+############################
+
+tmp/*
+!tmp/.keep
+
+.tmp/*
+!.tmp/.keep
+
+############################
+# Environment variables    #
+############################
+
+.env
+!.env.test
+
+############################
+# IDE / Editors            #
+############################
+
+.idea/
+*.iml
+
+.vscode/
+*.swp
+*.swo
+*~
+
+############################
+# OS / misc                #
+############################
+
+.DS_Store

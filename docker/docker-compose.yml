@@ -1,0 +1,145 @@
+services:
+  kafka:
+    image: apache/kafka:latest
+    restart: on-failure
+    hostname: kafka
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "19092:19092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  init-kafka:
+    image: apache/kafka:latest
+    restart: on-failure
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      "
+      echo 'Waiting for Kafka...'
+      until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --list; do
+        sleep 2
+      done
+
+      echo 'Creating kafka topics'
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic stock.events --replication-factor 1 --partitions 1
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic basket.confirmed --replication-factor 1 --partitions 1
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists --topic order.status.changed --replication-factor 1 --partitions 1
+
+      echo 'Successfully created the following topics:'
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --list
+      "
+
+  kafbat-ui:
+    container_name: kafbat-ui
+    image: ghcr.io/kafbat/kafka-ui:latest
+    volumes:
+      - ./kafbat-ui/config.yml:/etc/kafkaui/dynamic_config.yaml:ro
+    ports:
+      - "8080:8080"
+    environment:
+      DYNAMIC_CONFIG_ENABLED: 'true'
+      SWAGGER_UI_ENABLED: 'true'
+    depends_on:
+      - init-kafka   
+  
+  postgres:
+    image: postgres:18
+    container_name: postgres
+    environment:
+      POSTGRES_USER: "username"
+      POSTGRES_PASSWORD: "secret"
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init-db:/docker-entrypoint-initdb.d
+    command: [ "postgres", "-c", "log_statement=mod" ]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U username -d delivery"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  fake-basket:
+    image: registry.gitlab.com/microarch-ru/ddd-in-practice/microservices/generic/fake-basket:latest
+    restart: on-failure
+    environment:
+      "ASPNETCORE_ENVIRONMENT": "Development"
+      "MESSAGE_BROKER_HOST": "kafka:19092"
+      "STOCK_EVENTS_TOPIC": "stock.events"
+      "BASKET_EVENTS_TOPIC": "basket.confirmed"
+    ports:
+      - "8089:8089"
+  
+  discount:
+    image: registry.gitlab.com/microarch-ru/ddd-in-practice/microservices/generic/discount:latest
+    restart: on-failure
+    environment:
+      "ASPNETCORE_ENVIRONMENT": "Development"
+    ports:
+      - "5003:5003"
+      - "8083:8083"
+
+  geo:
+    image: registry.gitlab.com/microarch-ru/ddd-in-practice/microservices/generic/geo:latest
+    restart: on-failure
+    environment:
+      "ASPNETCORE_ENVIRONMENT": "Development"
+    ports:
+      - "5004:5004"
+      - "8084:8084"
+
+  backoffice:
+    image: registry.gitlab.com/microarch-ru/ddd-in-practice/front-end/backoffice:latest
+    restart: on-failure
+    ports:
+      - "8086:8080"
+
+  delivery:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: on-failure
+    environment:
+      HTTP_PORT: "8082"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: username
+      DB_PASSWORD: secret
+      DB_NAME: delivery
+      DB_SSLMODE: disable
+      GEO_SERVICE_GRPC_HOST: geo:5004
+      KAFKA_HOST: kafka:19092
+      KAFKA_CONSUMER_GROUP: delivery-service-group
+      KAFKA_ORDER_EVENTS_TOPIC: order.status.changed
+      KAFKA_BASKET_EVENTS_TOPIC: basket.confirmed
+      HTTP_CORS_ALLOWED_ORIGINS: "*"
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      geo:
+        condition: service_started
+      init-kafka:
+        condition: service_completed_successfully

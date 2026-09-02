@@ -1,0 +1,7 @@
+build/Dockerfile*
+README.md
+tmp
+.tmp
+.gitlab-ci*
+.helm*
+.git
