@@ -32,6 +32,8 @@ func NewOrderProducer(brokers []string, topic string) (ports.OrderProducer, erro
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(brokers...),
 		kgo.DefaultProduceTopic(topic),
+		kgo.AllowAutoTopicCreation(),
+		kgo.UnknownTopicRetries(5),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
 	}
 

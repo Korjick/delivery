@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
 	kafkacontainer "github.com/testcontainers/testcontainers-go/modules/kafka"
+	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
 )
@@ -40,6 +41,16 @@ func TestOrderProducer_PublishCompleted_PublishesIntegrationEvent(t *testing.T) 
 		t.Fatal(err)
 	}
 	topic := "order.status.changed." + uuid.NewString()
+
+	adminClient, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kadmClient := kadm.NewClient(adminClient)
+	if _, err = kadmClient.CreateTopics(ctx, 1, 1, nil, topic); err != nil {
+		t.Fatal(err)
+	}
+	adminClient.Close()
 
 	consumerClient, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
